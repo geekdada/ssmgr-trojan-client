@@ -11,7 +11,7 @@
 
 A [shadowsocks-manager](https://github.com/shadowsocks/shadowsocks-manager) s-node for trojan-gfw. If you know how to use trojan and shadowsocks-manager, you know what this does.
 
-**Support [trojan-gfw/trojan](https://github.com/trojan-gfw/trojan) only.**
+**Support [p4gefau1t/trojan-go](https://github.com/p4gefau1t/trojan-go) only.**
 
 ## Prerequisites
 - Node.js >= 16.0

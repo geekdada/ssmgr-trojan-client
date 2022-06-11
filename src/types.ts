@@ -1,6 +1,5 @@
-import { Socket } from 'net'
+import type { Socket } from 'net'
 import { Version } from './version'
-import { EDbType } from './db-client/types'
 
 export enum ECommand {
   List = 'list',
@@ -8,6 +7,7 @@ export enum ECommand {
   Delete = 'del',
   Flow = 'flow',
   Version = 'version',
+  ChangePassword = 'pwd',
 }
 
 export interface UserId {
@@ -24,20 +24,25 @@ export interface UserFlow {
   sumFlow: number
 }
 
-export interface UserData {
-  acctId: number
-  data: string
-}
-
 export interface ParsedVersion {
   version: Version
 }
 
-export type ParsedResult = UserId | UserIdPwd[] | UserFlow[] | ParsedVersion
+export type ParsedResult =
+  | UserId
+  | UserIdPwd[]
+  | UserFlow[]
+  | ParsedVersion
+  | UserIdPwd
 
 export interface ReceiveData {
   data: Buffer
   socket: Socket
+}
+
+export interface CommandMessage {
+  command?: ECommand
+  [key: string]: any
 }
 
 export interface Config {
@@ -45,10 +50,8 @@ export interface Config {
   addr: string
   port: number
   key: string
-  dbType: EDbType
-  dbAddr: string
-  dbPort: number
-  dbName: string
-  dbUser: string
-  dbPassword: string
+  apiHost: string
+  apiPort: number
+  trojanConfig?: string
+  fakeWebsite?: string
 }

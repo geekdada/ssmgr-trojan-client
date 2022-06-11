@@ -1,6 +1,9 @@
 import { getLogger } from 'log4js'
 
 const logger = getLogger()
-logger.level = process.env.LOG_LEVEL || 'info'
+const trojanLogger = getLogger('trojan')
 
-export { logger }
+logger.level = process.env.LOG_LEVEL || 'info'
+trojanLogger.level = 'debug'
+
+export { logger, trojanLogger }

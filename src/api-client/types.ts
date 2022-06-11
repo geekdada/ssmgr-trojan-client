@@ -1,36 +1,36 @@
 import { ECommand } from '../types'
 import { Version } from '../version'
 
-export enum EDbType {
-  Redis = 'redis',
-  MySQL = 'mysql',
-  API = 'api',
-}
-
 export interface ListResult {
   type: typeof ECommand.List
   data: {
-    id: number
+    accountId: number
     password: string
   }[]
 }
 
 export interface AddResult {
   type: typeof ECommand.Add
-  id: number
+  accountId: number
 }
 
 export interface RemoveResult {
   type: typeof ECommand.Delete
-  id: number
+  accountId: number
 }
 
 export interface FlowResult {
   type: typeof ECommand.Flow
   data: {
-    id: number
+    accountId: number
     flow: number
   }[]
+}
+
+export interface ChangePasswordResult {
+  type: typeof ECommand.ChangePassword
+  accountId: number
+  password: string
 }
 
 export interface VersionResult {
@@ -38,9 +38,10 @@ export interface VersionResult {
   version: Version
 }
 
-export type DBClientResult =
+export type APIClientResult =
   | ListResult
   | AddResult
   | RemoveResult
   | FlowResult
   | VersionResult
+  | ChangePasswordResult

@@ -4,3 +4,8 @@ dist/
 .idea/
 
 .DS_Store
+
+src/protobuf/*.ts
+bin/trojan-go
+
+/*.sqlite

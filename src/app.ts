@@ -1,53 +1,40 @@
-import { Socket, createServer } from 'net'
-import { createHash } from 'crypto'
+import 'source-map-support/register'
+import onDeath from 'death'
+import { ExecaChildProcess } from 'execa'
+import { createServer, Socket } from 'net'
 
-import { logger } from './logger'
-import { DBClient, initDB } from './db-client/db'
-import { parseConfig, Config } from './config'
+import { Config, getConfig } from './config'
+import { getDatabase } from './db'
+import { getClient } from './api-client'
+import type { APIClient, APIClientResult } from './api-client'
+import { logger, trojanLogger } from './logger'
 import Sentry from './sentry'
+import { checkCode, pack } from './socket'
+import { startFakeWebsite, startTrojan } from './trojan'
 import {
-  ReceiveData,
+  CommandMessage,
   ECommand,
+  ParsedResult,
+  ReceiveData,
   UserFlow,
   UserIdPwd,
-  ParsedResult,
 } from './types'
+import { assertNever } from './utils'
 import { version } from './version'
-import { DBClientResult } from './db-client/types'
+import './models'
 
 let config: Config
-let dbClient: DBClient
+let trojanClient: APIClient
+let trojanProcess: ExecaChildProcess | null = null
+let fakeWebsiteProcess: ExecaChildProcess | null = null
 
 /**
- * @param data command message buffer
- *
- * Supported commands:
- *  list ()
- *    List current users and encoded passwords
- *    return type:
- *      { type: 'list', data: [{ id: <number>, password: password<string> }, ...] }
- *  add (acctId<number>, password<string>)
- *    Attention: Based on trojan protocol, passwords must be unique.
- *    Passwords are stored in redis in SHA224 encoding (Don't pass encoded passwords).
- *    Use this method if you want to change password.
- *    return type:
- *      { type: 'add', id: acctId<number> }
- *  del (acctId<number>)
- *    Deletes an account by the given account ID
- *    return type:
- *      { type: 'del', id: acctId<number> }
- *  flow ()
- *    Returns flow data of all accounts since last flow query (including ones having no flow).
- *    It also lets you check active accounts. (In case redis has been wiped)
- *    return type:
- *      { type: 'flow', data: [{ id: <number>, flow: flow<number> }, ...] }
- *  version ()
- *    Returns the version of this client.
- *    return type:
- *      { type: 'version', version: version<string> }
+ * https://shadowsocks.github.io/shadowsocks-manager/#/ssmgrapi
  */
-const receiveCommand = async (data: Buffer): Promise<DBClientResult> => {
-  interface CommandMessage {
+const receiveCommand = async (
+  data: CommandMessage,
+): Promise<APIClientResult> => {
+  interface MergedCommandMessage {
     command: ECommand
     port: number
     password: string
@@ -57,133 +44,110 @@ const receiveCommand = async (data: Buffer): Promise<DBClientResult> => {
     [key: string]: any
   }
 
-  const message: CommandMessage = {
+  const message: MergedCommandMessage = {
     command: ECommand.Version,
     port: 0,
     password: '',
-    ...JSON.parse(data.slice(6).toString()),
+    ...data,
   }
   logger.info('Message received: ' + JSON.stringify(message))
+
   switch (message.command) {
     case ECommand.List:
-      return await dbClient.listAccounts()
+      return trojanClient.listAccounts()
     case ECommand.Add:
-      return await dbClient.addAccount(message.port, message.password)
+      return trojanClient.addAccount(message.port, message.password)
     case ECommand.Delete:
-      return await dbClient.removeAccount(message.port)
+      return trojanClient.removeAccount(message.port)
     case ECommand.Flow:
-      return await dbClient.getFlow(message.options)
+      return trojanClient.getFlow(message.options)
+    case ECommand.ChangePassword:
+      return trojanClient.changePassword(message.port, message.password)
     case ECommand.Version:
       return { type: ECommand.Version, version: version }
     default:
-      throw new Error('Invalid command: ' + message.command)
+      return assertNever(message.command)
   }
 }
 
-const parseResult = (result: DBClientResult): ParsedResult => {
+const parseResult = (result: APIClientResult): ParsedResult => {
   switch (result.type) {
     case ECommand.List:
       return result.data.map(
         (user): UserIdPwd => ({
-          port: user.id,
+          port: user.accountId,
           password: user.password,
         }),
       )
     case ECommand.Add:
-      return { port: result.id }
+      return { port: result.accountId }
     case ECommand.Delete:
-      return { port: result.id }
+      return { port: result.accountId }
     case ECommand.Flow:
       return result.data.map(
         (user): UserFlow => ({
-          port: user.id,
+          port: user.accountId,
           sumFlow: user.flow,
         }),
       )
+    case ECommand.ChangePassword:
+      return { port: result.accountId, password: result.password }
     case ECommand.Version:
       return { version: result.version }
     default:
-      throw new Error('Invalid command')
+      return assertNever(result)
   }
 }
 
 const checkData = async (receive: ReceiveData): Promise<void> => {
-  interface PackData {
-    code: number
-    data?: ParsedResult
-  }
-
-  const pack = (data: PackData): Buffer => {
-    const message = JSON.stringify(data)
-    const dataBuffer = Buffer.from(message)
-    const length = dataBuffer.length
-    const lengthBuffer = Buffer.from(
-      length.toString(16).padStart(8, '0'),
-      'hex',
-    )
-    const pack = Buffer.concat([lengthBuffer, dataBuffer])
-    return pack
-  }
-
-  const checkCode = (data: Buffer, code: Buffer): boolean => {
-    const time = Number.parseInt(data.slice(0, 6).toString('hex'), 16)
-    if (Math.abs(Date.now() - time) > 10 * 60 * 1000) {
-      logger.warn('Invalid message: Timed out.')
-      return false
-    }
-    const command = data.slice(6).toString()
-    const hash = createHash('md5')
-      .update(time + command + config.key)
-      .digest('hex')
-      .substr(0, 8)
-    if (hash === code.toString('hex')) {
-      return true
-    } else {
-      logger.warn('Invalid message: Hash mismatch. (Incorrect password)')
-      return false
-    }
-  }
-
   const buffer = receive.data
   let length = 0
   let data: Buffer
   let code: Buffer
+
   if (buffer.length < 2) {
     return
   }
+
   length = buffer[0] * 256 + buffer[1]
+
   if (buffer.length >= length + 2) {
     data = buffer.slice(2, length - 2)
     code = buffer.slice(length - 2)
-    if (!checkCode(data, code)) {
+
+    if (!checkCode(config.key, data, code)) {
       receive.socket.end(pack({ code: 2 }))
       return
     }
+
     try {
-      const result = parseResult(await receiveCommand(data))
+      const payload = JSON.parse(data.slice(6).toString()) as CommandMessage
+      const rawResult = await receiveCommand(payload).catch((err: Error) => {
+        Sentry.captureException(err, (scope) => {
+          scope.setTags({
+            phase: 'receiveCommand',
+          })
+          return scope
+        })
+        if (payload.command) {
+          throw new Error(`Query error on '${payload.command}': ${err.message}`)
+        } else {
+          throw new Error(`Query error: ${err.message}`)
+        }
+      })
+      const result = parseResult(rawResult)
 
       logger.debug('Result: ' + JSON.stringify(result, null, 2))
 
       receive.socket.end(pack({ code: 0, data: result }))
     } catch (err) {
       if (err instanceof Error) {
-        Sentry.captureException(err)
         logger.error(err.message)
+
         receive.socket.end(
           pack({ code: err.message === 'Invalid command' ? 1 : -1 }),
         )
       }
-    }
-    if (buffer.length > length + 2) {
-      checkData(receive).catch((err: Error) => {
-        Sentry.captureException(err, (scope) => {
-          scope.setTags({
-            phase: 'checkData',
-          })
-          return scope
-        })
-        logger.error(err.message)
-      })
     }
   }
 }
@@ -193,8 +157,10 @@ const server = createServer((socket: Socket) => {
     data: Buffer.from(''),
     socket,
   }
+
   socket.on('data', (data: Buffer) => {
     receive.data = Buffer.concat([receive.data, data])
+
     checkData(receive).catch((err: Error) => {
       Sentry.captureException(err, (scope) => {
         scope.setTags({
@@ -205,6 +171,7 @@ const server = createServer((socket: Socket) => {
       logger.error(err.message)
     })
   })
+
   socket.on('error', (err: Error) => {
     Sentry.captureException(err, (scope) => {
       scope.setTags({
@@ -222,21 +189,111 @@ const server = createServer((socket: Socket) => {
     return scope
   })
   logger.error('TCP server error: ', err.message)
+  throw err
 })
 
 const startServer = async (): Promise<void> => {
   logger.info(`Running ssmgr-trojan-client v${version}`)
 
-  config = parseConfig()
+  const database = getDatabase()
+  await database.authenticate()
+  await database.sync()
+
+  config = getConfig()
+
   if (config.debug) {
     logger.level = 'debug'
   }
+
   logger.debug(JSON.stringify(config))
 
-  dbClient = await initDB(config)
+  trojanClient = await getClient(config)
+
+  if (config.fakeWebsite) {
+    logger.info(
+      'Initializing the fake website, listening on ' + config.fakeWebsite,
+    )
+
+    fakeWebsiteProcess = startFakeWebsite(config.fakeWebsite)
+
+    fakeWebsiteProcess.on('exit', (code) => {
+      fakeWebsiteProcess = null
+
+      if (code && code > 0) {
+        throw new Error(
+          `Fake website process exited unexpectedly with code ${code}`,
+        )
+      }
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+
+  if (config.trojanConfig) {
+    trojanProcess = startTrojan(config.trojanConfig)
+
+    trojanProcess.on('error', (error: Error) => {
+      trojanLogger.error(error.message)
+      Sentry.captureException(error, (scope) => {
+        scope.setTags({
+          phase: 'trojan:error',
+        })
+        return scope
+      })
+
+      if (trojanProcess) {
+        trojanProcess.kill(1)
+      }
+    })
+
+    trojanProcess.on('exit', (code) => {
+      trojanProcess = null
+
+      if (code && code > 0) {
+        throw new Error(
+          `trojan-go process exited unexpectedly with code ${code}`,
+        )
+      }
+    })
+
+    trojanProcess.once('api-service-ready', () => {
+      trojanClient
+        .init({
+          onTickError: (err) => {
+            Sentry.captureException(err, (scope) => {
+              scope.setTags({
+                phase: 'trojanClient:onTickError',
+              })
+              return scope
+            })
+          },
+        })
+        .catch((err) => {
+          Sentry.captureException(err, (scope) => {
+            scope.setTags({
+              phase: 'trojanClient:init',
+            })
+            return scope
+          })
+
+          throw err
+        })
+    })
+  } else {
+    await trojanClient.init({
+      onTickError: (err) => {
+        Sentry.captureException(err, (scope) => {
+          scope.setTags({
+            phase: 'trojanClient:onTickError',
+          })
+          return scope
+        })
+      },
+    })
+  }
 
   server.listen(config.port, config.addr, () => {
-    logger.info(`Listening on ${config.addr}:${config.port}`)
+    logger.info(`Client is listening on ${config.addr}:${config.port}`)
   })
 }
 
@@ -254,4 +311,30 @@ startServer().catch((e) => {
   }
   logger.error('FATAL ERROR. TERMINATED.')
   process.exit(1)
+})
+
+onDeath({ uncaughtException: true })((signal, err) => {
+  if (signal instanceof Error) {
+    logger.error(signal)
+    logger.error('An uncaught error occurred. Terminating the service...')
+  } else if (signal === ('uncaughtException' as any) && err) {
+    logger.error(err)
+    logger.error(`Received uncaughtException. Terminating the service...`)
+  } else {
+    logger.info(`Received ${signal}. Terminating the service...`)
+  }
+
+  trojanClient.disconnect()
+  if (trojanProcess) {
+    trojanProcess.kill(0)
+  }
+  if (fakeWebsiteProcess) {
+    fakeWebsiteProcess.kill(0)
+  }
+  server.close()
+  getDatabase()
+    .close()
+    .then(() => {
+      process.exit(0)
+    })
 })

@@ -1,4 +1,4 @@
-#!/usr/bin/env zx
+/* global $, path */
 
 const destFolder = path.join(__dirname, '../src/protobuf')
 

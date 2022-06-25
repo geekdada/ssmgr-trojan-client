@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node'
-import { logger } from './logger'
 import { hostname } from 'os'
+
+import { logger } from './logger'
 
 const dsn = process.env.SENTRY_DSN
 const tracesSampleRate = process.env.SENTRY_TRACES_SAMPLE_RATE

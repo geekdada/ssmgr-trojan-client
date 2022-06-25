@@ -2,6 +2,7 @@
   "extends": "./tsconfig.json",
   "include": [
     "src/**/*.ts",
+    "scripts/**/*.mjs",
     "fake-website/server.mjs",
     ".eslintrc.js"
   ],

@@ -41,7 +41,7 @@ const receiveCommand = async (
     options?: {
       clear?: boolean
     }
-    [key: string]: any
+    [key: string]: unknown
   }
 
   const message: MergedCommandMessage = {
@@ -50,7 +50,7 @@ const receiveCommand = async (
     password: '',
     ...data,
   }
-  logger.info('Message received: ' + JSON.stringify(message))
+  logger.info('Message received: %j', message)
 
   switch (message.command) {
     case ECommand.List:
@@ -205,7 +205,7 @@ const startServer = async (): Promise<void> => {
     logger.level = 'debug'
   }
 
-  logger.debug(JSON.stringify(config))
+  logger.debug('%j', config)
 
   trojanClient = await getClient(config)
 

@@ -7,7 +7,7 @@ import { Config, getConfig } from './config'
 import { getDatabase } from './db'
 import { getClient } from './api-client'
 import type { APIClient, APIClientResult } from './api-client'
-import { logger, trojanLogger } from './logger'
+import { logger, trojanLogger, enableDebug } from './logger'
 import Sentry from './sentry'
 import { checkCode, pack } from './socket'
 import { startFakeWebsite, startTrojan } from './trojan'
@@ -204,7 +204,7 @@ const startServer = async (): Promise<void> => {
   config = getConfig()
 
   if (config.debug) {
-    logger.level = 'debug'
+    enableDebug()
   }
 
   logger.debug('%j', config)
@@ -232,7 +232,11 @@ const startServer = async (): Promise<void> => {
   }
 
   if (config.trojanConfig) {
-    trojanProcess = startTrojan(config.trojanConfig)
+    trojanProcess = startTrojan(
+      config.apiHost,
+      config.apiPort,
+      config.trojanConfig,
+    )
 
     trojanProcess.on('error', (error: Error) => {
       trojanLogger.error(error.message)
@@ -263,6 +267,8 @@ const startServer = async (): Promise<void> => {
     })
 
     trojanProcess.once('api-service-ready', () => {
+      logger.info('trojan-go API service is ready')
+
       trojanClient
         .init({
           onTickError: (err) => {
@@ -356,7 +362,7 @@ onDeath({ uncaughtException: true })((signal, err, origin) => {
   server.close()
   getDatabase()
     .close()
-    .then(() => {
+    .finally(() => {
       process.exit(0)
     })
 })

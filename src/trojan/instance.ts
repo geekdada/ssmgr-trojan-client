@@ -1,13 +1,22 @@
 import execa from 'execa'
 import os from 'os'
 import { join } from 'path'
+import tcpPortUsed from 'tcp-port-used'
 
 import { trojanLogger } from '../logger'
 
-export const startTrojan = (configPath: string) => {
-  const osPlatform = os.platform().toLowerCase()
+const ensureTrojanPort = async (host: string, port: number) => {
+  await tcpPortUsed.waitUntilUsedOnHost(port, host, 1000, 10000)
+}
 
+export const startTrojan = (
+  trojanHost: string,
+  trojanPort: number,
+  configPath: string,
+) => {
+  const osPlatform = os.platform().toLowerCase()
   const osArch = os.arch().toLowerCase()
+
   if (!['x64', 'arm64'].includes(osArch)) {
     throw new Error(`Unsupported architecture: ${osArch}`)
   }
@@ -26,9 +35,7 @@ export const startTrojan = (configPath: string) => {
       data
         .toString()
         .split(os.EOL)
-        .forEach((line: string) => {
-          const log = line.trim()
-
+        .forEach((log: string) => {
           if (log.length > 0) {
             if (log.includes('[FATAL]') || log.includes('[ERROR]')) {
               trojanLogger.error(log.replace(/\[FATAL\]|\[ERROR\]/g, '').trim())
@@ -41,16 +48,18 @@ export const startTrojan = (configPath: string) => {
             } else {
               trojanLogger.debug(log.trim())
             }
-
-            if (log.includes('initializing')) {
-              setTimeout(() => {
-                trojanProcess.emit('api-service-ready', {})
-              }, 500)
-            }
           }
         })
     })
   }
+
+  ensureTrojanPort(trojanHost, trojanPort)
+    .then(() => {
+      trojanProcess.emit('api-service-ready', {})
+    })
+    .catch(() => {
+      throw new Error('trojan-go API service is not ready after timeout.')
+    })
 
   return trojanProcess
 }

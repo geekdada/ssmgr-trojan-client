@@ -55,6 +55,7 @@
     "@types/ioredis": "^4.28.10",
     "@types/node": "^16.11.41",
     "@types/serve-handler": "^6.1.1",
+    "@types/tcp-port-used": "^1.0.1",
     "@typescript-eslint/eslint-plugin": "^5.29.0",
     "@typescript-eslint/parser": "^5.29.0",
     "eslint": "^8.18.0",

@@ -135,20 +135,22 @@ export class APIClient {
   }
 
   private async onTick(): Promise<void> {
-    const [accounts, accountFlows, existingPasswords] = await Promise.all([
+    const [dbAccounts, trojanInMemoryAccountFlows] = await Promise.all([
       Account.findAll(),
-      this.trojanManager.getFlow(),
-      this.trojanManager.listAccounts(),
+      this.trojanManager.getFlows(),
     ])
-    const passwordsToAdd = []
+    const passwordsToAdd: string[] = []
     const flowsToAdd = []
+    const passwordsToRemove = trojanInMemoryAccountFlows.map(
+      (f) => f.passwordHash,
+    )
 
-    for await (const account of accounts) {
+    for await (const account of dbAccounts) {
       const { password } = account
-      const existingPasswordIndex = existingPasswords.findIndex(
-        (existingPassword: string) => existingPassword === password,
+      const inMemoryAccountIndex = trojanInMemoryAccountFlows.findIndex(
+        (f) => f.passwordHash === password,
       )
-      const flows = accountFlows
+      const flows = trojanInMemoryAccountFlows
         .filter((flow) => flow.passwordHash === account.password)
         .map((flow) => ({
           accountId: account.id,
@@ -157,30 +159,29 @@ export class APIClient {
 
       flowsToAdd.push(...flows)
 
-      if (existingPasswordIndex > -1) {
-        existingPasswords.splice(existingPasswordIndex, 1)
+      if (inMemoryAccountIndex > -1) {
+        // Account exists in memory and database, keep it in the memory
+        passwordsToRemove.splice(inMemoryAccountIndex, 1)
       } else {
+        // Account doesn't exist in memory, add it to memory
         passwordsToAdd.push(password)
       }
     }
 
-    const jobs = []
+    await Flow.bulkCreate(flowsToAdd)
 
-    jobs.push(Flow.bulkCreate(flowsToAdd))
-    jobs.push(
-      this.trojanManager.clearFlow(
-        accountFlows.map((flow) => flow.passwordHash),
-      ),
+    // Reset all flows
+    await this.trojanManager.clearFlow(
+      trojanInMemoryAccountFlows.map((flow) => flow.passwordHash),
     )
 
     if (passwordsToAdd.length) {
-      jobs.push(this.trojanManager.addAccount(passwordsToAdd))
+      await this.trojanManager.addAccount(passwordsToAdd)
     }
 
-    if (existingPasswords.length) {
-      jobs.push(this.trojanManager.removeAccount(existingPasswords))
+    if (passwordsToRemove.length) {
+      // Passwords left in the array are not in the database, remove them from memory
+      await this.trojanManager.removeAccount(passwordsToRemove)
     }
-
-    await Promise.all(jobs)
   }
 }

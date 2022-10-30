@@ -23,22 +23,6 @@ export class TrojanManager {
     this.cl = new TrojanServerServiceClient(this.transport)
   }
 
-  public async listAccounts(): Promise<string[]> {
-    const streamingCall = this.cl.listUsers({})
-    const accounts = []
-
-    for await (const user of streamingCall.responses) {
-      const { status } = user
-      const hash = status?.user?.hash
-
-      if (!hash) continue
-
-      accounts.push(hash)
-    }
-
-    return accounts
-  }
-
   public async addAccount(passwordHashList: string[]): Promise<void> {
     const duplexCall = this.cl.setUsers()
 
@@ -83,7 +67,7 @@ export class TrojanManager {
     await duplexCall.status
   }
 
-  public async getFlow(): Promise<
+  public async getFlows(): Promise<
     Array<{
       passwordHash: string
       flow: number

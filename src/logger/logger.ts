@@ -64,3 +64,8 @@ logger.level = isProd ? process.env.LOG_LEVEL || 'warn' : 'trace'
 trojanLogger.level = isProd ? process.env.TROJAN_LOG_LEVEL || 'warn' : 'trace'
 
 export { logger, trojanLogger }
+
+export const enableDebug = () => {
+  logger.level = 'debug'
+  trojanLogger.level = 'debug'
+}

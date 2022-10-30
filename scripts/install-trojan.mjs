@@ -9,8 +9,13 @@ import * as unzipper from 'unzipper'
 const streamPipeline = promisify(pipeline)
 const version = argv._[1] || process.env.INSTALL_TROJAN_VERSION || 'latest'
 const tmpFolder = path.join(os.tmpdir(), 'ssmgr-trojan-client')
+const targetFile = path.join(tmpFolder, 'trojan-go')
 const osPlatform = os.platform().toLowerCase()
 const osArch = os.arch().toLowerCase()
+
+if (fs.existsSync(targetFile)) {
+  await fs.remove(targetFile)
+}
 
 if (!['x64', 'arm64'].includes(osArch)) {
   throw new Error(`Unsupported architecture: ${osArch}`)
@@ -49,7 +54,6 @@ console.info('> tmpFolder:', tmpFolder)
 console.info('> Download trojan-go from', url)
 
 const response = await fetch(url)
-const targetFile = path.join(tmpFolder, 'trojan-go')
 
 if (!response.ok) throw new Error(`unexpected response ${response.statusText}`)
 

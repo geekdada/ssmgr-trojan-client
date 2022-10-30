@@ -31,13 +31,15 @@ export const startTrojan = (configPath: string) => {
 
           if (log.length > 0) {
             if (log.includes('[FATAL]') || log.includes('[ERROR]')) {
-              trojanLogger.error(log)
+              trojanLogger.error(log.replace(/\[FATAL\]|\[ERROR\]/g, '').trim())
             } else if (log.includes('[WARN]')) {
-              trojanLogger.warn(log)
+              trojanLogger.warn(log.replace('[WARN]', '').trim())
             } else if (log.includes('[INFO]')) {
-              trojanLogger.info(log)
+              trojanLogger.info(log.replace('[INFO]', '').trim())
+            } else if (log.includes('[DEBUG]')) {
+              trojanLogger.debug(log.replace('[DEBUG]', '').trim())
             } else {
-              trojanLogger.debug(log)
+              trojanLogger.debug(log.trim())
             }
 
             if (log.includes('initializing')) {

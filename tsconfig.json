@@ -11,7 +11,8 @@
     "useUnknownInCatchVariables": true,
     "sourceMap": true,
     "sourceRoot": "/",
-    "inlineSources": true
+    "inlineSources": true,
+    "typeRoots": ["./node_modules/@types", "./types"],
   },
   "exclude": [
     "node_modules"

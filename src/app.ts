@@ -168,7 +168,7 @@ const server = createServer((socket: Socket) => {
         })
         return scope
       })
-      logger.error(err.message)
+      logger.error('[checkData] ' + err.message)
     })
   })
 
@@ -179,16 +179,18 @@ const server = createServer((socket: Socket) => {
       })
       return scope
     })
-    logger.error('Socket error: ', err.message)
+    logger.error('[socket:error] Socket error: ' + err.message)
   })
-}).on('error', (err: Error) => {
+})
+
+server.on('error', (err: Error) => {
   Sentry.captureException(err, (scope) => {
     scope.setTags({
       phase: 'server:error',
     })
     return scope
   })
-  logger.error('TCP server error: ', err.message)
+  logger.error('[server:error] TCP server error: ' + err.message)
   throw err
 })
 
@@ -253,6 +255,10 @@ const startServer = async (): Promise<void> => {
         throw new Error(
           `trojan-go process exited unexpectedly with code ${code}`,
         )
+      } else {
+        throw new Error(
+          `trojan-go process exited unexpectedly with code ${code || 'null'}`,
+        )
       }
     })
 
@@ -260,6 +266,8 @@ const startServer = async (): Promise<void> => {
       trojanClient
         .init({
           onTickError: (err) => {
+            logger.error('[trojanClient:onTickError] ' + err.message)
+
             Sentry.captureException(err, (scope) => {
               scope.setTags({
                 phase: 'trojanClient:onTickError',
@@ -269,6 +277,8 @@ const startServer = async (): Promise<void> => {
           },
         })
         .catch((err) => {
+          logger.error('[trojanClient:init] ' + err.message)
+
           Sentry.captureException(err, (scope) => {
             scope.setTags({
               phase: 'trojanClient:init',
@@ -282,6 +292,8 @@ const startServer = async (): Promise<void> => {
   } else {
     await trojanClient.init({
       onTickError: (err) => {
+        logger.error('[trojanClient:onTickError] ' + err.message)
+
         Sentry.captureException(err, (scope) => {
           scope.setTags({
             phase: 'trojanClient:onTickError',
@@ -299,7 +311,8 @@ const startServer = async (): Promise<void> => {
 
 startServer().catch((e) => {
   if (e instanceof Error) {
-    logger.error(e.message)
+    logger.error('[startServer] ' + e.message)
+
     Sentry.captureException(e, (scope) => {
       scope.setTags({
         phase: 'startServer',
@@ -307,19 +320,28 @@ startServer().catch((e) => {
       return scope
     })
   } else {
-    logger.error(e)
+    logger.error('[startServer] ' + e)
   }
   logger.error('FATAL ERROR. TERMINATED.')
   process.exit(1)
 })
 
-onDeath({ uncaughtException: true })((signal, err) => {
-  if (signal instanceof Error) {
-    logger.error(signal)
-    logger.error('An uncaught error occurred. Terminating the service...')
-  } else if (signal === ('uncaughtException' as any) && err) {
-    logger.error(err)
-    logger.error(`Received uncaughtException. Terminating the service...`)
+onDeath({ uncaughtException: true })((signal, err, origin) => {
+  function report(error: Error) {
+    Sentry.captureException(error, (scope) => {
+      scope.setTags({
+        phase: 'onDeath',
+      })
+      return scope
+    })
+  }
+
+  if (signal === 'uncaughtException') {
+    if (err && origin) {
+      report(err)
+      logger.error(err)
+      logger.error(`Received an uncaught exception. Terminating the service...`)
+    }
   } else {
     logger.info(`Received ${signal}. Terminating the service...`)
   }

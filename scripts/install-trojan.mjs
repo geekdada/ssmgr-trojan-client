@@ -4,18 +4,13 @@ import 'zx/globals'
 import os from 'node:os'
 import { pipeline } from 'node:stream'
 import { promisify } from 'node:util'
+import * as unzipper from 'unzipper'
 
 const streamPipeline = promisify(pipeline)
 const version = argv._[1] || process.env.INSTALL_TROJAN_VERSION || 'latest'
 const tmpFolder = path.join(os.tmpdir(), 'ssmgr-trojan-client')
 const osPlatform = os.platform().toLowerCase()
 const osArch = os.arch().toLowerCase()
-
-try {
-  await $`which unzip`
-} catch (_) {
-  throw new Error('Command unzip not found')
-}
 
 if (!['x64', 'arm64'].includes(osArch)) {
   throw new Error(`Unsupported architecture: ${osArch}`)
@@ -54,18 +49,18 @@ console.info('> tmpFolder:', tmpFolder)
 console.info('> Download trojan-go from', url)
 
 const response = await fetch(url)
-const zipFile = path.join(tmpFolder, 'trojan-go.zip')
+const targetFile = path.join(tmpFolder, 'trojan-go')
 
 if (!response.ok) throw new Error(`unexpected response ${response.statusText}`)
 
-await streamPipeline(response.body, fs.createWriteStream(zipFile))
+await streamPipeline(response.body, unzipper.Extract({ path: tmpFolder }))
 
-console.info('> Download is successful:', zipFile)
+console.info('> Download is successful:', tmpFolder)
 
-await $`unzip -oq ${zipFile} -d ${tmpFolder}`
-await fs.copyFile(
-  path.join(tmpFolder, 'trojan-go'),
+await fs.move(targetFile, path.join(__dirname, '../bin/trojan-go'))
+await $`chmod +x ${path.join(__dirname, '../bin/trojan-go')}`
+
+console.info(
+  '> Trojan is successfully installed to:',
   path.join(__dirname, '../bin/trojan-go'),
 )
-
-console.info('> Unzip is successful:', path.join(__dirname, '../bin/trojan-go'))

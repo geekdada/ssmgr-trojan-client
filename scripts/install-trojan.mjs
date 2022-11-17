@@ -9,19 +9,23 @@ import * as unzipper from 'unzipper'
 const streamPipeline = promisify(pipeline)
 const version = argv._[1] || process.env.INSTALL_TROJAN_VERSION || 'latest'
 const tmpFolder = path.join(os.tmpdir(), 'ssmgr-trojan-client')
-const targetFile = path.join(tmpFolder, 'trojan-go')
+const tmpBinPath = path.join(tmpFolder, 'trojan-go')
+const binPath = path.join(__dirname, '../bin/trojan-go')
 const osPlatform = os.platform().toLowerCase()
 const osArch = os.arch().toLowerCase()
-
-if (fs.existsSync(targetFile)) {
-  await fs.remove(targetFile)
-}
 
 if (!['x64', 'arm64'].includes(osArch)) {
   throw new Error(`Unsupported architecture: ${osArch}`)
 }
 if (!['linux', 'darwin'].includes(osPlatform)) {
   throw new Error(`Unsupported platform: ${osPlatform}`)
+}
+
+if (fs.existsSync(tmpBinPath)) {
+  await fs.remove(tmpBinPath)
+}
+if (fs.existsSync(binPath)) {
+  await fs.remove(binPath)
 }
 if (!fs.existsSync(tmpFolder)) {
   fs.mkdirSync(tmpFolder)
@@ -61,10 +65,8 @@ await streamPipeline(response.body, unzipper.Extract({ path: tmpFolder }))
 
 console.info('> Download is successful:', tmpFolder)
 
-await fs.move(targetFile, path.join(__dirname, '../bin/trojan-go'))
-await $`chmod +x ${path.join(__dirname, '../bin/trojan-go')}`
+await fs.move(tmpBinPath, binPath)
+await $`chmod +x ${binPath}`
+await $`${binPath} --version`
 
-console.info(
-  '> Trojan is successfully installed to:',
-  path.join(__dirname, '../bin/trojan-go'),
-)
+console.info('> Trojan is successfully installed to:', binPath)

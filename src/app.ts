@@ -173,13 +173,21 @@ const server = createServer((socket: Socket) => {
   })
 
   socket.on('error', (err: Error) => {
-    Sentry.captureException(err, (scope) => {
-      scope.setTags({
-        phase: 'socket:error',
-      })
-      return scope
-    })
-    logger.error('[socket:error] Socket error: ' + err.message)
+    if ('code' in err) {
+      switch (err.code) {
+        case 'ECONNRESET':
+          logger.debug('[socket:error] Socket error: ' + err.message)
+          break
+        default:
+          Sentry.captureException(err, (scope) => {
+            scope.setTags({
+              phase: 'socket:error',
+            })
+            return scope
+          })
+          logger.error('[socket:error] Socket error: ' + err.message)
+      }
+    }
   })
 })
 

@@ -6,11 +6,10 @@ import { pipeline } from 'node:stream'
 import { promisify } from 'node:util'
 
 const streamPipeline = promisify(pipeline)
-const version = argv._[1] || process.env.INSTALL_TROJAN_VERSION || 'latest'
+const version = argv._[1] || process.env.INSTALL_HYSTERIA_VERSION || 'latest'
 const tmpFolder = path.join(os.tmpdir(), 'ssmgr-trojan-client')
-const tmpArchivedFile = path.join(tmpFolder, 'trojan-go.zip')
-const tmpBinPath = path.join(tmpFolder, 'trojan-go')
-const binPath = path.join(__dirname, '../bin/trojan-go')
+const tmpBinPath = path.join(tmpFolder, 'hysteria')
+const binPath = path.join(__dirname, '../bin/hysteria')
 const osPlatform = os.platform().toLowerCase()
 const osArch = os.arch().toLowerCase()
 
@@ -34,45 +33,45 @@ if (version !== 'latest' && !version.startsWith('v')) {
   throw new Error('version must be "latest" or start with "v"')
 }
 
-let url
-
-switch (osPlatform) {
-  case 'linux':
-    {
-      const linuxArch = osArch === 'x64' ? 'amd64' : 'armv8'
-
-      url = `https://github.com/p4gefau1t/trojan-go/releases/${
-        version === 'latest' ? 'latest/download' : 'download/' + version
-      }/trojan-go-linux-${linuxArch}.zip`
-    }
-    break
-  case 'darwin':
-    {
-      const darwinArch = osArch === 'x64' ? 'amd64' : 'arm64'
-
-      url = `https://github.com/p4gefau1t/trojan-go/releases/${
-        version === 'latest' ? 'latest/download' : 'download/' + version
-      }/trojan-go-darwin-${darwinArch}.zip`
-    }
-    break
+function getArch() {
+  switch (osPlatform) {
+    case 'linux':
+      return osArch === 'x64' ? 'amd64' : 'arm64'
+    case 'darwin':
+      return osArch === 'x64' ? 'amd64' : 'arm64'
+  }
 }
 
+async function getLatestVersion() {
+  const resp = await fetch(
+    `https://api.hy2.io/v1/update?cver=installscript&plat=${osPlatform}&arch=${getArch()}&chan=release&side=server`,
+  )
+  const json = await resp.json()
+
+  return json.lver
+}
+
+async function getDownloadUrl() {
+  const downloadVersion =
+    version === 'latest' ? await getLatestVersion() : version
+
+  return `https://github.com/apernet/hysteria/releases/download/app/${downloadVersion}/hysteria-${osPlatform}-${getArch()}`
+}
+
+const url = await getDownloadUrl()
+
 console.info('> tmpFolder:', tmpFolder)
-console.info('> Download trojan-go from', url)
+console.info('> Download hysteria from', url)
 
 const response = await fetch(url)
 
 if (!response.ok) throw new Error(`unexpected response ${response.statusText}`)
 
-const writeStream = fs.createWriteStream(tmpArchivedFile)
+const writeStream = fs.createWriteStream(tmpBinPath)
 
 await streamPipeline(response.body, writeStream)
-
-console.info('> Download is successful:', tmpFolder)
-
-await $`unzip -o ${tmpArchivedFile} -d ${tmpFolder}`
 await fs.move(tmpBinPath, binPath)
 await $`chmod +x ${binPath}`
-await $`${binPath} --version`
+await $`${binPath} version`
 
-console.info('> Trojan is successfully installed to:', binPath)
+console.info('> Hysteria is successfully installed to:', binPath)

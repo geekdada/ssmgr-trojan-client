@@ -1,7 +1,7 @@
 import { createServer } from 'node:http'
 import serve from 'serve-handler'
 import { join } from 'node:path'
-import * as url from 'url'
+import * as url from 'node:url'
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
 

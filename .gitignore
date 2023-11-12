@@ -8,5 +8,6 @@ logs/
 
 src/protobuf/*.ts
 bin/trojan-go
+bin/hysteria
 
 /*.sqlite
